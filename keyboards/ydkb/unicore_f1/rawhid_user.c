@@ -22,10 +22,11 @@ along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
 
 void rprint(char *msg) {
+    return;
     //0xfdee
     uint8_t eeee_buf[32] = {0};
     uint8_t msg_len = strlen(msg);
-    if (msg_len > 30) msg_len = 30; //一次发送最大长度限制，长了可以分多次发送
+    if (msg_len > 30) msg_len = 30;
     memcpy(&eeee_buf[2], msg, msg_len);
     eeee_buf[0] = 0xFD;
     eeee_buf[1] = 0xEE;

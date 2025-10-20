@@ -3,14 +3,14 @@
 #include "config_common.h"
 
 /* USB Device descriptor parameter */
-#define FW_VER_DATE     DP6M
+#define FW_VER_DATE     DPAI
 #define CONTACT(x,y)    x##y
 #define CONTACT2(x,y)   CONTACT(x,y)
 #define FW_VER          CONTACT2(VIAL_, FW_VER_DATE)
 #define VENDOR_ID       0x9D5B
 #define PRODUCT_ID      0x23FA
 #define DEVICE_VER      0x0001
-#define MANUFACTURER    KBDFans_YDKB
+#define MANUFACTURER    KBDFans
 #if CONSOLE_ENABLE
 #define PRODUCT         UniCore_F1 Uni Debug (FW_VER)
 #else

@@ -201,7 +201,7 @@ void user_config_init(void)
         indicator_color_config[i] = (layout_value & 0b111);
         uint8_t hue = indicator_hue_preset[ indicator_color_config[i] ];
         layout_value >>= 3;
-        if (hue == 255) indicator_color[i] = (LED_TYPE){val/2, val/2, val/2};
+        if (hue == 255) indicator_color[i] = (LED_TYPE){0, 0, 0}; //disable this indicator
         else            indicator_color[i] = hsv_to_rgb((HSV){hue, 255, val});
         xprintf("\n indicator %d R: %d, G: %d, B:%d", i, indicator_color[i].r, indicator_color[i].g, indicator_color[i].b);
     }

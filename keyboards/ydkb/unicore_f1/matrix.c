@@ -20,11 +20,14 @@ along with this program.  If not, see <http://www.gnu.org/licenses/>.
 #include "ch.h"
 #include "hal.h"
 
+#define DEBOUNCE_DN 3 //default 5
+#define DEBOUNCE_UP 5 //default 5
+
 /*
  * scan matrix
  */
+#include "eeconfig.h"
 #include "action.h"
-#include "print.h"
 #include "debug.h"
 #include "timer.h"
 #include "util.h"
@@ -34,18 +37,23 @@ along with this program.  If not, see <http://www.gnu.org/licenses/>.
 #include "switch_board.h"
 #include "rgblight.h"
 
+#ifndef MAX_ROWS
+#define MAX_ROWS MATRIX_ROWS
+#endif
+#define PREVENT_KEYIO_GND
+//#define SHOW_BOUNCE_DN
+//#define SHOW_BOUNCE_UP
 #undef DOUBLE_CLICK_FIX_DELAY
-#define DOUBLE_CLICK_FIX_DELAY 15
+#define DOUBLE_CLICK_FIX_DELAY 10
 
 extern debug_config_t debug_config;
 
+bool bootmagic_checked = 0;
 static matrix_row_t matrix[MATRIX_ROWS] = {0};
-static uint16_t matrix_scan_timestamp = 0;
 static uint8_t matrix_debouncing[MATRIX_ROWS][MATRIX_COLS] = {0};
 static uint8_t matrix_double_click_fix[MATRIX_ROWS][MATRIX_COLS] = {0};
-static uint8_t now_debounce_dn_mask = DEBOUNCE_DN_MASK;
-static bool matrix_idle = false;
-static bool first_key_scan = false;
+uint8_t now_debounce_dn_mask = DEBOUNCE_DN_MASK;
+uint8_t now_debounce_up_mask = DEBOUNCE_UP_MASK;
 
 static void select_key(uint8_t mode);
 static void select_all_keys(void);
@@ -92,37 +100,30 @@ void matrix_init(void)
     rgblight_user_init();
 }
 
+#ifdef PREVENT_KEYIO_GND
 static bool process_key_press = 0;
 bool should_process_keypress(void) {
     return process_key_press;
 }
+#endif
 
 uint8_t matrix_scan(void)
 {
-    matrix_scan_quantum(); // use this to run hook_keyboard_loop()
-
-#if 0 //ndef MAGNET
-    if (matrix_idle) {
-        if (get_key() == 0) return 1;
-        else {
-            matrix_idle = false;
-            first_key_scan = true;
-        }
-    }
+#ifdef PREVENT_KEYIO_GND
+    uint8_t matrix_keys_idle = 0;
 #endif
-    //if (!first_key_scan) {
-        //scan matrix every 1ms
-        uint16_t time_check = timer_read();
-        if (matrix_scan_timestamp == time_check) return 1;
-        matrix_scan_timestamp = time_check;
-    //}
+
+    matrix_scan_kb(); // use this to run hook_keyboard_loop()
+#if 0
+    //scan matrix every 1ms
+    static uint16_t matrix_scan_timestamp = 0;
+    uint16_t time_check = timer_read();
+    if (matrix_scan_timestamp == time_check) return 1;
+    matrix_scan_timestamp = time_check;
+#endif
 
     select_key(0);
-    uint8_t matrix_keys_idle = 0;
-    for (uint8_t row=0; row<MATRIX_ROWS; row++) {
-      #ifdef MAX_ROWS
-        if (row >= MAX_ROWS) break;
-      #endif
+    for (uint8_t row=0; row<MAX_ROWS; row++) {
         for (uint8_t col=0; col<MATRIX_COLS; col++) {
             uint8_t *debounce = &matrix_debouncing[row][col];
             uint8_t *double_click_fix = &matrix_double_click_fix[row][col];
@@ -140,32 +141,35 @@ uint8_t matrix_scan(void)
                     if        (*debounce > now_debounce_dn_mask) {  //debounce KEY DOWN 
                         *p_row |=  col_mask;
                         *double_click_fix = DOUBLE_CLICK_FIX_DELAY; 
-                    } else if (*debounce < DEBOUNCE_UP_MASK) { //debounce KEY UP
+                    } else if (*debounce < now_debounce_up_mask) { //debounce KEY UP
                         *p_row &= ~col_mask;
+                      #ifdef PREVENT_KEYIO_GND
                         matrix_keys_idle++;
+                      #endif
                     }
+                }
+
+                bool bouncing = 0;
+              #ifdef SHOW_BOUNCE_DN
+                bouncing = (*debounce >= 0b10001000 && *debounce <= 0b10111111);
+              #endif
+              #ifdef SHOW_BOUNCE_UP
+                uint8_t db_up = ~(*debounce);
+                bouncing |= (db_up >= 0b10001000 && db_up <= 0b10111111);
+              #endif
+                if (bouncing) {
+                    xprintf("\nKey(%d,%d) bounce %08b!", row, col, *debounce);
+                    //raw_hid_send_bouncing_key(row, col);
                 }
             }
         }
     }
 
+#ifdef PREVENT_KEYIO_GND
     // to avoid all the keys being down in some cases like KEY is connected to GND.
     process_key_press = (matrix_keys_idle > 0);
-
-#if 0 
-    // no key down, set matrix_idle.
-    if (matrix_keys_idle == MATRIX_ROWS * MATRIX_COLS) {
-        select_all_keys();
-        matrix_idle = true;
-    } else {
-        if (first_key_scan) {
-            first_key_scan = false;
-            #if DEBOUNCE_NK > 0
-            matrix_scan();
-            #endif
-        }
-    }
 #endif
+
 
     return 1;
 }
@@ -210,20 +214,19 @@ void select_all_keys(void)
     select_key_ready();
 
     KEY_SDI_ON();
-    for (uint8_t i = 0; i < MATRIX_ROWS * MATRIX_COLS; i++) {
+    for (uint8_t i = 0; i < MAX_ROWS * MATRIX_COLS; i++) {
         CLOCK_PULSE();
     }
     //KEYS_LATCH();
     get_key_ready();
 }
 
-
 static void select_key(uint8_t mode)
 {
     select_key_ready();
     if (mode == 0) {
         KEY_SDI_OFF();
-        for (uint8_t i = 0; i < MATRIX_ROWS * MATRIX_COLS; i++) {
+        for (uint8_t i = 0; i < MAX_ROWS * MATRIX_COLS; i++) {
             CLOCK_PULSE();
         }
         KEY_SDI_ON();
@@ -249,10 +252,7 @@ void bootmagic_lite(void)
     //check result
     uint8_t keys_down_pos[3] = {0xff, 0xff, 0xff};
     uint8_t i = 0;
-    for (uint8_t row=0; row<MATRIX_ROWS; row++) {
-      #ifdef MAX_ROWS
-        if (row >= MAX_ROWS) break;
-      #endif
+    for (uint8_t row=0; row<MAX_ROWS; row++) {
         for (uint8_t col=0; col<MATRIX_COLS; col++) {
             if (matrix_get_row(row) & (1<<col)) {
                 keys_down_pos[i] = row * MATRIX_COLS + col;
@@ -272,6 +272,7 @@ void bootmagic_lite(void)
             }
         }
     }
+    bootmagic_checked = 1;
 }
 
 void early_hardware_init_pre(void)
