@@ -20,9 +20,6 @@ along with this program.  If not, see <http://www.gnu.org/licenses/>.
 #include "ch.h"
 #include "hal.h"
 
-#define DEBOUNCE_DN 3 //default 5
-#define DEBOUNCE_UP 5 //default 5
-
 /*
  * scan matrix
  */
@@ -41,22 +38,18 @@ along with this program.  If not, see <http://www.gnu.org/licenses/>.
 #define MAX_ROWS MATRIX_ROWS
 #endif
 #define PREVENT_KEYIO_GND
-//#define SHOW_BOUNCE_DN
-//#define SHOW_BOUNCE_UP
-#undef DOUBLE_CLICK_FIX_DELAY
-#define DOUBLE_CLICK_FIX_DELAY 10
+#define SHOW_BOUNCE_DN
+#define SHOW_BOUNCE_UP
 
 extern debug_config_t debug_config;
 
 bool bootmagic_checked = 0;
 static matrix_row_t matrix[MATRIX_ROWS] = {0};
 static uint8_t matrix_debouncing[MATRIX_ROWS][MATRIX_COLS] = {0};
-static uint8_t matrix_double_click_fix[MATRIX_ROWS][MATRIX_COLS] = {0};
 uint8_t now_debounce_dn_mask = DEBOUNCE_DN_MASK;
 uint8_t now_debounce_up_mask = DEBOUNCE_UP_MASK;
 
 static void select_key(uint8_t mode);
-static void select_all_keys(void);
 static uint8_t get_key(void);
 static void init_cols(void);
 __attribute__ ((weak))
@@ -71,6 +64,7 @@ void matrix_scan_kb(void)
 
 bool is_ver5020 = 0;
 bool is_sc_leds_mcu = 0;
+bool has_extra_pull_up = 0;
 
 void matrix_init(void)
 {
@@ -97,6 +91,14 @@ void matrix_init(void)
     palClearPad(GPIOA, 8);
 
     init_cols();
+
+    // check extra pull up
+    palSetPad(GPIOB, 13);
+    palSetPadMode(GPIOB, 13, PAL_MODE_INPUT_PULLDOWN);
+    wait_ms(5);
+    if (palReadPad(GPIOB, 13)) {
+        has_extra_pull_up = 1;
+    }
     rgblight_user_init();
 }
 
@@ -126,7 +128,6 @@ uint8_t matrix_scan(void)
     for (uint8_t row=0; row<MAX_ROWS; row++) {
         for (uint8_t col=0; col<MATRIX_COLS; col++) {
             uint8_t *debounce = &matrix_debouncing[row][col];
-            uint8_t *double_click_fix = &matrix_double_click_fix[row][col];
 
             uint8_t key = get_key();
             *debounce = (*debounce >> 1) | key;
@@ -135,18 +136,14 @@ uint8_t matrix_scan(void)
             if (1) {
                 matrix_row_t *p_row = &matrix[row];
                 matrix_row_t col_mask = ((matrix_row_t)1 << col);
-                if (*double_click_fix > 0 && (*p_row & col_mask) == 0) {
-                    (*double_click_fix)--;
-                } else {
+
                     if        (*debounce > now_debounce_dn_mask) {  //debounce KEY DOWN 
                         *p_row |=  col_mask;
-                        *double_click_fix = DOUBLE_CLICK_FIX_DELAY; 
                     } else if (*debounce < now_debounce_up_mask) { //debounce KEY UP
                         *p_row &= ~col_mask;
                       #ifdef PREVENT_KEYIO_GND
                         matrix_keys_idle++;
                       #endif
-                    }
                 }
 
                 bool bouncing = 0;
@@ -200,6 +197,12 @@ static void init_cols(void)
 {
     // 595 | 5020 pin
     palSetGroupMode(GPIOB, (1<<13 | 1<<12), 0 , PAL_MODE_OUTPUT_PUSHPULL);
+    // disable all keys
+    select_key_ready();
+    KEY_SDI_OFF();
+    for (uint8_t i = 0; i < MAX_ROWS * MATRIX_COLS; i++) {
+        CLOCK_PULSE();
+    }
 }
 
  
@@ -207,18 +210,6 @@ static uint8_t get_key(void)
 {
     // B13(595) and B14(5020)
     return palReadPad(GPIOB, 13)? 0 : 0x80;
-}
-
-void select_all_keys(void)
-{
-    select_key_ready();
-
-    KEY_SDI_ON();
-    for (uint8_t i = 0; i < MAX_ROWS * MATRIX_COLS; i++) {
-        CLOCK_PULSE();
-    }
-    //KEYS_LATCH();
-    get_key_ready();
 }
 
 static void select_key(uint8_t mode)

@@ -3,7 +3,7 @@
 #include "config_common.h"
 
 /* USB Device descriptor parameter */
-#define FW_VER_DATE     DPAI
+#define FW_VER_DATE     DPCH
 #define CONTACT(x,y)    x##y
 #define CONTACT2(x,y)   CONTACT(x,y)
 #define FW_VER          CONTACT2(VIAL_, FW_VER_DATE)
@@ -19,6 +19,10 @@
 
 #define USB_MAX_POWER_CONSUMPTION 350
 #define WAIT_FOR_USB
+
+/* debounce */
+#define DEBOUNCE_DN 3 //default 5
+#define DEBOUNCE_UP 5 //default 5
 
 /* key matrix size */
 #define MATRIX_ROWS 14 //max supported

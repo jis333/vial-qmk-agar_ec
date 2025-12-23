@@ -5,9 +5,10 @@
 #include <stdbool.h>
 
 #define GPIO_OUTPUT_MODE (PAL_MODE_OUTPUT_PUSHPULL)
-#define GPIO_INPUT_MODE (PAL_MODE_INPUT_PULLUP)
+#define GETKEY_INPUT_MODE (has_extra_pull_up? (PAL_MODE_INPUT_PULLDOWN) : (PAL_MODE_INPUT_PULLUP))
 
 extern bool is_ver5020;
+extern bool has_extra_pull_up;
 
 //SDI PB13
 static inline void KEY_SDI_OFF(void) {
@@ -33,10 +34,8 @@ static inline void sleep_us(int us){
 
 static inline void get_key_ready(void) {
     // PB13 input
-    palSetPadMode(GPIOB, 13, GPIO_INPUT_MODE);
-    // PB13 PB14 pull up
-    palSetPad(GPIOB, 13);
-    //sleep_us(2);
+    palSetPadMode(GPIOB, 13, GETKEY_INPUT_MODE);
+    sleep_us(2);
 }
 
 static inline void select_key_ready(void) {
