@@ -20,6 +20,7 @@ const uint16_t PROGMEM keymaps[][MATRIX_ROWS][MATRIX_COLS] =
 
 #include "led.h"
 #include "rgblight.h"
+#include "ec_matrix.h"
 
 extern uint8_t indicator_color_config[];
 void rgb_extra_process(LED_TYPE *rgbled) {

@@ -194,7 +194,7 @@ void bootmagic_lite(void)
             enter_bootloader();
         } else if (keys_down_pos[2] == 0xff) {
             //two keys down. if the other key is KC_E, clear eeprom.
-            if (eeprom_read_byte(VIA_EEPROM_CONFIG_END+1 + keys_down_pos[1]*2) == KC_E) {
+            if (eeprom_read_byte((const uint8_t *)(VIA_EEPROM_CONFIG_END + 1 + keys_down_pos[1]*2)) == KC_E) {
                 eeconfig_init_via();
             }
         }
