@@ -29,7 +29,7 @@
 static inline void C_CHARGE_READY(void) { palSetLine(A1); }
 static inline void C_DISCHARGE(void)    { palClearLine(A1); }
 
-static void ec_matrix_check(void);
+// static void ec_matrix_check(void);
 
 void adc_init(void)
 {
@@ -193,7 +193,9 @@ extern uint16_t scan_speed;
 void ec_matrix_print(void)
 {
     if (print_matrix_adc == 0) return;
+#if CONSOLE_ENABLE
     static uint8_t print_speed_or_apc = 0;
+#endif
     xprintf("\n%3d ", ((++print_speed_or_apc)&1)? scan_speed : ec_ap_value);
     for (uint8_t col = 0; col < MATRIX_COLS; col++) {
         xprintf("[%X],", col);

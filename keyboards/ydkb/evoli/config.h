@@ -1,6 +1,6 @@
 #pragma once
 
-#include "config_common.h"
+// #include "config_common.h"
 
 /* USB Device descriptor parameter */
 #define FW_VER_DATE     DP9S

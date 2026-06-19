@@ -20,9 +20,10 @@ const uint16_t PROGMEM keymaps[][MATRIX_ROWS][MATRIX_COLS] =
 
 #include "led.h"
 #include "rgblight.h"
+#include "ec_matrix.h"
 
 extern uint8_t indicator_color_config[];
-void rgb_extra_process(LED_TYPE *rgbled) {
+void rgb_extra_process(ws2812_led_t *rgbled) {
     if ((indicator_color_config[1] & 1) == 1) { //disable Bottom RGB, set them to 0
         memset(&rgbled[PHY_INDICATOR_NUM], 0, RGBLED_NUM*3);
         rprint("Off\n");

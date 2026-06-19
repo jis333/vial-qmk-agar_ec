@@ -30,13 +30,13 @@ along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
 extern rgblight_config_t rgblight_config;
 
-static LED_TYPE RGBLIGHT_COLOR_OFF = { .r = 0, .g = 0, .b = 0 };
+static ws2812_led_t RGBLIGHT_COLOR_OFF = { .r = 0, .g = 0, .b = 0 };
 uint8_t indicator_state = 0;
 
 uint8_t indicator_color_config[3];
-LED_TYPE indicator_color[3];
+ws2812_led_t indicator_color[3];
 
-LED_TYPE rgbled[PHY_INDICATOR_NUM+RGBLED_NUM];
+ws2812_led_t rgbled[PHY_INDICATOR_NUM+RGBLED_NUM];
 
 void set_rgb_user(uint8_t r, uint8_t g,  uint8_t b)
 {
@@ -60,7 +60,7 @@ void rgblight_user_init(void)
     set_rgb_user(0, 0, 0);
 }
 
-void rgblight_call_driver(LED_TYPE *start_led, uint8_t num_leds) {
+void rgblight_call_driver(ws2812_led_t *start_led, uint8_t num_leds) {
     // keep indicator color
     for (uint8_t i=0; i<PHY_INDICATOR_NUM; i++) {
         if (indicator_state & (1<<i)) {
@@ -185,7 +185,7 @@ void user_config_init(void)
         layout_value >>= 3;
         indicator_color_config[i] = (layout_value & 0b111);
         uint8_t hue = indicator_hue_preset[ indicator_color_config[i] ];
-        if (hue == 255) indicator_color[i] = (LED_TYPE){val/2, val/2, val/2};
+        if (hue == 255) indicator_color[i] = (ws2812_led_t){val/2, val/2, val/2};
         else            indicator_color[i] = hsv_to_rgb((HSV){hue, 255, val});
         xprintf("\n indicator %d R: %d, G: %d, B:%d", i, indicator_color[i].r, indicator_color[i].g, indicator_color[i].b);
     }

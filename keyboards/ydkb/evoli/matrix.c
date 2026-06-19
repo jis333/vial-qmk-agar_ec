@@ -33,7 +33,7 @@ along with this program.  If not, see <http://www.gnu.org/licenses/>.
 #include "wait.h"
 #include "ec_matrix.h"
 #include "rgblight.h"
-
+#include "dynamic_keymap.h"
 
 
 /* matrix state(1:on, 0:off) */
@@ -110,8 +110,6 @@ uint8_t matrix_scan(void)
         ec_matrix_print();
       #endif
     }
-
-    matrix_scan_quantum(); // qmk needs this to run hook_keyboard_loop()
     return matrix_keys_down;
 }
 
@@ -158,9 +156,9 @@ void unselect_rows(void)
 {
 }
 
-static void select_row(uint8_t row)
-{
-}
+// static void select_row(uint8_t row)
+// {
+// }
 
 #include "eeprom.h"
 #include "via.h"
@@ -194,7 +192,9 @@ void bootmagic_lite(void)
             enter_bootloader();
         } else if (keys_down_pos[2] == 0xff) {
             //two keys down. if the other key is KC_E, clear eeprom.
-            if (eeprom_read_byte(VIA_EEPROM_CONFIG_END+1 + keys_down_pos[1]*2) == KC_E) {
+            uint8_t row = keys_down_pos[1] / MATRIX_COLS;
+            uint8_t col = keys_down_pos[1] % MATRIX_COLS;
+            if (dynamic_keymap_get_keycode(0, row, col) == KC_E) {
                 eeconfig_init_via();
             }
         }
