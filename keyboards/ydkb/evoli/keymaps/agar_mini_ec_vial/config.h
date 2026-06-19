@@ -44,9 +44,15 @@
 // is resolved.
 #define CONFIG_BOOT_TEST_RGB
 
-// DIAG_B15_BLINK disabled: raw non-protocol toggling turned out to be an
-// inconclusive test (WS2812 LEDs ignore malformed signals rather than
-// visibly reacting), so it can't distinguish "wrong pin" from "right pin,
-// ignored garbage". Keeping it off so it doesn't fight over WS2812_DI_PIN
-// now that pin is shared with matrix row 1.
-// #define DIAG_B15_BLINK
+// TEMPORARY DIAGNOSTIC: re-enabled, now targeting WS2812_DI_PIN (B1) itself,
+// post-boot, to check whether the pin can be driven at all once matrix
+// scanning has been running for a while (the real WS2812 protocol writes
+// and the any-keypress diagnostic both showed zero effect post-boot, so
+// this checks one level lower).
+#define DIAG_B15_BLINK
+
+// TEMPORARY DIAGNOSTIC: toggle the indicator directly on Caps Lock keypress,
+// bypassing the host USB LED report entirely, to isolate whether the
+// WS2812 write path itself works post-boot. Remove once caps lock sync is
+// confirmed working through the normal path.
+#define DIAG_FORCE_INDICATOR_ON_CAPS

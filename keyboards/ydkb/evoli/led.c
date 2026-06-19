@@ -85,6 +85,17 @@ static void my_rgblight_flush(void) {
     for (uint16_t i = 0; i < PHY_INDICATOR_NUM + RGBLED_NUM; i++) {
         ws2812_set_color(i, rgbled[i].r, rgbled[i].g, rgbled[i].b);
     }
+
+    // WS2812_DI_PIN (B1) is shared with matrix row 1 -- ec_select_row()/
+    // ec_unselect_rows() constantly flip its pin mode between
+    // INPUT_PULLUP and OUTPUT_PUSHPULL during normal matrix scanning, so by
+    // the time we get here (e.g. on a caps lock toggle, long after boot)
+    // the pin is likely not in output mode anymore. ws2812_flush() assumes
+    // ws2812_init()'s one-time mode setup still holds, so re-assert it here
+    // right before transmitting. The next matrix scan reclaims the pin
+    // immediately after, which is fine since by then our frame is already
+    // latched.
+    gpio_set_pin_output(WS2812_DI_PIN);
     ws2812_flush();
 }
 
@@ -105,6 +116,9 @@ void set_rgb_user(uint8_t r, uint8_t g, uint8_t b)
     for (uint16_t i = 0; i < PHY_INDICATOR_NUM + RGBLED_NUM; i++) {
         ws2812_set_color(i, rgbled[i].r, rgbled[i].g, rgbled[i].b);
     }
+    // see my_rgblight_flush() for why this is needed -- WS2812_DI_PIN (B1)
+    // is shared with matrix row 1.
+    gpio_set_pin_output(WS2812_DI_PIN);
     ws2812_flush();
 }
 
@@ -148,6 +162,18 @@ bool led_update_user(led_t led_state)
 bool process_record_user(uint16_t keycode, keyrecord_t *record) {
     static uint8_t mod_keys_registered;
     uint8_t pressed_mods = get_mods();
+#ifdef DIAG_FORCE_INDICATOR_ON_CAPS
+    // TEMPORARY DIAGNOSTIC: drive the indicator directly on ANY keypress
+    // (any physical key), bypassing the host USB LED report / led_update_user()
+    // entirely. If this lights up cyan but the real caps-lock-state path
+    // doesn't, the WS2812 write itself is fine and the bug is in the host
+    // LED report never reaching led_update_user(). If this ALSO doesn't
+    // light up, the WS2812 write path itself is still broken post-boot.
+    if (record->event.pressed) {
+        indicator_state ^= 1;
+        rgblight_set();
+    }
+#endif
     switch (keycode) {
         case 0x5c00: // via/vial reset to bootloader
             if (record->event.pressed) {
@@ -245,33 +271,32 @@ void user_config_init(void)
         }
         xprintf("\n indicator %d R: %d, G: %d, B:%d", i, indicator_color[i].r, indicator_color[i].g, indicator_color[i].b);
     }
+    // Caps Lock indicator: fixed cyan, regardless of the VIA layout-option
+    // color computed above.
+    indicator_color[0] = (ws2812_led_t){.r = 0, .g = 255, .b = 255};
     led_wakeup();
     rprint("Layout set change\n");
 }
 
 #ifdef DIAG_B15_BLINK
-// TEMPORARY: raw on/off toggle, bypassing all WS2812 timing, to find which
-// pin RGBL1's DIN is actually wired to. B15 produced no visible reaction at
-// all, so this now tests PC13 -- the conventional "onboard LED" pin on
-// STM32F103 "Blue Pill"-style boards, which cheap clone PCBs frequently
-// reuse for an external LED too. Remove once the real pin is confirmed.
+// TEMPORARY: raw on/off toggle, bypassing all WS2812 timing, on
+// WS2812_DI_PIN (currently B1) itself. Re-asserts output mode every cycle
+// (not just once) since matrix scanning shares this pin and keeps flipping
+// its mode -- this checks whether the pin can be driven at all, post-boot,
+// once matrix scanning has been running for a while. B15 and C13 (tested
+// earlier, before WS2812_DI_PIN was changed to B1) showed no reaction.
 #include "gpio.h"
-#define DIAG_PIN C13
 static void diag_b15_blink(void) {
-    static bool initialized = false;
     static uint32_t last = 0;
     static bool     state = false;
-    if (!initialized) {
-        initialized = true;
-        gpio_set_pin_output(DIAG_PIN);
-    }
     if (timer_elapsed32(last) > 500) {
         last  = timer_read32();
         state = !state;
+        gpio_set_pin_output(WS2812_DI_PIN);
         if (state) {
-            gpio_write_pin_high(DIAG_PIN);
+            gpio_write_pin_high(WS2812_DI_PIN);
         } else {
-            gpio_write_pin_low(DIAG_PIN);
+            gpio_write_pin_low(WS2812_DI_PIN);
         }
     }
 }
