@@ -70,6 +70,13 @@ bool should_process_keypress(void) {
 
 uint8_t matrix_scan(void)
 {
+#ifdef DIAG_PIN_SWEEP
+    // Diagnostic build: matrix scanning is suspended so the WS2812 data-pin
+    // sweep in led.c can drive the shared GPIOB matrix pins (rows B0-B6, mux
+    // B10-B14) cleanly. Keys are intentionally dead while this temporary
+    // diagnostic runs; remove DIAG_PIN_SWEEP to restore normal operation.
+    return 0;
+#endif
     uint8_t matrix_keys_down = 0;
     uint8_t matrix_keys_scan = 0;
     static bool scan_forward = 0;

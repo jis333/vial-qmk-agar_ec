@@ -39,20 +39,21 @@
 #define INDICATOR_FUNCT    {(1<<1)}
 //#define RGB_EXTRA_PROCESS_ENABLE
 
-// TEMPORARY DIAGNOSTIC: boot-time red/green/blue/off flash to verify WS2812
-// output is physically reaching the LED. Remove once the always-on issue
-// is resolved.
-#define CONFIG_BOOT_TEST_RGB
+// TEMPORARY DIAGNOSTIC: WS2812 data-pin sweep (see led.c). ROUND 2 -- now
+// sweeping the MATRIX pins (rows B0-B6, mux B10-B14), since the 17 non-matrix
+// pins and B1 were all ruled out (RGBL1 just stays power-on white). While this
+// is defined, matrix_scan() is suspended (matrix.c) so the sweep can drive
+// GPIOB cleanly -- KEYS ARE DEAD in this build, that's expected. Identified by
+// BLINK COUNT (xprintf is a no-op here): candidate i blinks white (i+1) times;
+// only the pin wired to RGBL1 blinks -> count the white blinks from power-on.
+// Remove once the DIN pin is found.
+#define DIAG_PIN_SWEEP
 
-// TEMPORARY DIAGNOSTIC: re-enabled, now targeting WS2812_DI_PIN (B1) itself,
-// post-boot, to check whether the pin can be driven at all once matrix
-// scanning has been running for a while (the real WS2812 protocol writes
-// and the any-keypress diagnostic both showed zero effect post-boot, so
-// this checks one level lower).
-#define DIAG_B15_BLINK
+// CONFIG_BOOT_TEST_RGB (boot R->G->B on B1) is now OFF: B1 was ruled out (no
+// R->G->B appeared) and it would only add a confusing flash. Re-enable only to
+// re-test a specific WS2812_DI_PIN value.
+//#define CONFIG_BOOT_TEST_RGB
 
-// TEMPORARY DIAGNOSTIC: toggle the indicator directly on Caps Lock keypress,
-// bypassing the host USB LED report entirely, to isolate whether the
-// WS2812 write path itself works post-boot. Remove once caps lock sync is
-// confirmed working through the normal path.
-#define DIAG_FORCE_INDICATOR_ON_CAPS
+// Superseded / disabled:
+//   DIAG_B15_BLINK              - raw GPIO toggle, invalid test for a WS2812
+//   DIAG_FORCE_INDICATOR_ON_CAPS- any-keypress toggle, confirmed no effect

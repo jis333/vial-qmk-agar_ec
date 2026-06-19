@@ -131,12 +131,15 @@ void rgblight_user_init(void)
     // try to flush colors below, so every write here is silently lost.
     ws2812_init();
 #ifdef CONFIG_BOOT_TEST_RGB
-    set_rgb_user(32, 0, 0);
-    wait_ms(300);
-    set_rgb_user(0, 32, 0);
-    wait_ms(300);
-    set_rgb_user(0, 0, 32);
-    wait_ms(300);
+    // Clean one-shot R->G->B->off on WS2812_DI_PIN (B1) at boot, before matrix
+    // scanning starts. If RGBL1 shows these three colours at power-on, B1 is
+    // the DIN. Slow/bright so it is easy to catch by eye.
+    set_rgb_user(64, 0, 0);
+    wait_ms(550);
+    set_rgb_user(0, 64, 0);
+    wait_ms(550);
+    set_rgb_user(0, 0, 64);
+    wait_ms(550);
 #endif
     set_rgb_user(0, 0, 0);
 }
@@ -278,34 +281,164 @@ void user_config_init(void)
     rprint("Layout set change\n");
 }
 
-#ifdef DIAG_B15_BLINK
-// TEMPORARY: raw on/off toggle, bypassing all WS2812 timing, on
-// WS2812_DI_PIN (currently B1) itself. Re-asserts output mode every cycle
-// (not just once) since matrix scanning shares this pin and keeps flipping
-// its mode -- this checks whether the pin can be driven at all, post-boot,
-// once matrix scanning has been running for a while. B15 and C13 (tested
-// earlier, before WS2812_DI_PIN was changed to B1) showed no reaction.
+#ifdef DIAG_PIN_SWEEP
+// =====================================================================
+// TEMPORARY DIAGNOSTIC: WS2812 data-pin sweep (blink-count identification).
+//
+// ROUND 2 -- matrix pins. The 17 NON-matrix GPIOs were swept first and RGBL1
+// never reacted (it sits at its power-on white and never blinked), which
+// rules them out: had any been the DIN, it would have blinked. B1 was also
+// ruled out (the boot R->G->B test on it showed nothing). So the DIN must be
+// one of the MATRIX pins (rows B0-B6, 4051 mux/EN B10-B14) -- which the first
+// sweep skipped because live matrix scanning keeps re-driving them.
+//
+// To test them cleanly, matrix_scan() is SUSPENDED while DIAG_PIN_SWEEP is
+// defined (see matrix.c), so nothing else drives GPIOB. Keys are dead in this
+// diagnostic build -- that is expected and temporary.
+//
+// Identification is by BLINK COUNT (xprintf is a no-op here): the candidate
+// at index i blinks the LED white (i+1) times. Only the pin wired to RGBL1's
+// DIN blinks, so watch from power-on and count the white blinks -- that count
+// (1-based) is the pin's position in sweep_pins[] below. White is used so the
+// result does not depend on the LED's byte order. If NOTHING here ever blinks
+// either, RGBL1 is likely not a single-wire WS2812 at all (e.g. an analog RGB
+// LED) and we switch to a raw per-channel test next.
+// =====================================================================
 #include "gpio.h"
-static void diag_b15_blink(void) {
-    static uint32_t last = 0;
-    static bool     state = false;
-    if (timer_elapsed32(last) > 500) {
-        last  = timer_read32();
-        state = !state;
-        gpio_set_pin_output(WS2812_DI_PIN);
-        if (state) {
-            gpio_write_pin_high(WS2812_DI_PIN);
-        } else {
-            gpio_write_pin_low(WS2812_DI_PIN);
+#include "chibios_config.h"   // CPU_CLOCK
+
+// The matrix GPIOs (the only pins not yet cleanly tested). Likely candidates
+// first: the 4051 mux/EN lines B10-B14 (the PCB photo put a LED data trace
+// near the MCU's right edge), then the row lines. B1 is omitted -- it was
+// ruled out by the boot test and rgblight still flushes to it. Order == blink
+// count (index 0 -> 1 blink): 1=B10 2=B11 3=B12 4=B13 5=B14 6=B0 7=B2 8=B3
+// 9=B4 10=B5 11=B6.
+static const pin_t  sweep_pins[] = { B10, B11, B12, B13, B14, B0, B2, B3, B4, B5, B6 };
+#define SWEEP_COUNT   (sizeof(sweep_pins) / sizeof(sweep_pins[0]))
+#define SWEEP_ON_MS   220
+#define SWEEP_OFF_MS  220
+#define SWEEP_GAP_MS  1300   // dark gap between one pin's blink train and the next
+
+// Pin-parameterised WS2812 bitbang. The stock driver
+// (platforms/chibios/drivers/ws2812_bitbang.c) hardcodes WS2812_DI_PIN, so
+// we replicate its timing here but drive an arbitrary, runtime-selected pin
+// via PAL port ops (palSetPort/palClearPort) with a precomputed port+mask.
+#define DIAG_NOP_FUDGE       0.4
+#define DIAG_NUMBER_NOPS     6
+#define DIAG_CYCLES_PER_SEC  (CPU_CLOCK / DIAG_NUMBER_NOPS * DIAG_NOP_FUDGE)
+#define DIAG_NS_PER_CYCLE    (1000000000L / DIAG_CYCLES_PER_SEC)
+#define DIAG_NS_TO_CYCLES(n) ((n) / DIAG_NS_PER_CYCLE)
+#define diag_wait_ns(x)                                       \
+    do {                                                      \
+        for (int _i = 0; _i < DIAG_NS_TO_CYCLES(x); _i++) {   \
+            __asm__ volatile("nop\n\tnop\n\tnop\n\t"          \
+                             "nop\n\tnop\n\tnop\n\t");         \
+        }                                                     \
+    } while (0)
+
+static void diag_sweep_send(pin_t line, uint8_t r, uint8_t g, uint8_t b) {
+    // Use ChibiOS PAL port ops (as ec_matrix.c does) so we don't depend on a
+    // particular GPIO struct typedef; port+mask are precomputed so each edge
+    // stays constant-time (within WS2812 spec) for a runtime-selected pin.
+    ioportid_t   port = PAL_PORT(line);
+    ioportmask_t mask = (ioportmask_t)(1u << PAL_PAD(line));
+    uint8_t      grb[3] = { g, r, b }; // WS2812 GRB, MSB first
+    chSysLock();
+    for (uint8_t px = 0; px < (PHY_INDICATOR_NUM + RGBLED_NUM); px++) {
+        for (uint8_t k = 0; k < 3; k++) {
+            uint8_t byte = grb[k];
+            for (uint8_t bit = 0; bit < 8; bit++) {
+                if (byte & (0x80 >> bit)) {
+                    palSetPort(port, mask);   diag_wait_ns(WS2812_T1H);
+                    palClearPort(port, mask); diag_wait_ns(WS2812_T1L);
+                } else {
+                    palSetPort(port, mask);   diag_wait_ns(WS2812_T0H);
+                    palClearPort(port, mask); diag_wait_ns(WS2812_T0L);
+                }
+            }
         }
+    }
+    diag_wait_ns(1000 * WS2812_TRST_US); // latch / reset gap
+    chSysUnlock();
+}
+
+// Non-blocking blink-count sweep. For candidate `idx` it shows (idx+1) WHITE
+// blinks, then a dark gap, then advances to the next pin. Only the real DIN
+// pin blinks visibly -> count the blinks to identify it (see header above).
+// White (all channels equal) is used so the result does not depend on the
+// LED's byte order (GRB/RGB/BGR). Every candidate pin is parked driven-LOW
+// when idle (never left floating) so a floating DIN can't latch noise and
+// appear randomly lit.
+#define SWEEP_WHITE 64, 64, 64
+static void diag_pin_sweep(void) {
+    static uint32_t t0    = 0;
+    static uint16_t idx   = 0;
+    static int16_t  state = -1; // -1 = start train, 0..2N-1 = blink states, -2 = gap
+    static bool     init  = false;
+
+    if (!init) {
+        init = true;
+        // Park every candidate driven-low (no floating) AND push one OFF frame
+        // to each. If any of these pins IS the DIN, RGBL1's power-on white
+        // clears to dark immediately -- which by itself confirms the DIN is one
+        // of these matrix pins, and gives a clean dark background for the white
+        // blink-count to show against.
+        for (uint16_t i = 0; i < SWEEP_COUNT; i++) {
+            gpio_set_pin_output(sweep_pins[i]);
+            gpio_write_pin_low(sweep_pins[i]);
+            diag_sweep_send(sweep_pins[i], 0, 0, 0);
+        }
+        t0    = timer_read32();
+        state = -1;
+    }
+
+    if (state == -1) {                          // begin this pin's train: first ON
+        diag_sweep_send(sweep_pins[idx], SWEEP_WHITE);
+        state = 0;
+        t0    = timer_read32();
+        return;
+    }
+    if (state == -2) {                          // dark gap between pins (LED off)
+        if (timer_elapsed32(t0) >= SWEEP_GAP_MS) {
+            idx   = (idx + 1) % SWEEP_COUNT;
+            state = -1;
+        }
+        return;
+    }
+
+    bool currently_on = ((state & 1) == 0);     // even state = LED on, odd = off
+    if (timer_elapsed32(t0) < (currently_on ? SWEEP_ON_MS : SWEEP_OFF_MS)) return;
+
+    state++;
+    t0 = timer_read32();
+    if (state >= (int16_t)(2 * (idx + 1))) {    // (idx+1) blinks done -> gap
+        diag_sweep_send(sweep_pins[idx], 0, 0, 0); // off; frame leaves pin driven low
+        state = -2;
+        return;
+    }
+    if ((state & 1) == 0) {                     // new ON edge
+        diag_sweep_send(sweep_pins[idx], SWEEP_WHITE);
+    } else {                                    // new OFF edge
+        diag_sweep_send(sweep_pins[idx], 0, 0, 0);
     }
 }
 #endif
 
+// hook_keyboard_loop() is effectively DEAD on this board: it is only ever
+// called from matrix_scan_kb(), which is only called from
+// quantum/matrix_common.c -- and that file is NOT compiled when
+// CUSTOM_MATRIX = yes (builddefs/common_features.mk:654). It is kept here
+// only so the (unused, weak) matrix_scan_kb() in matrix.c still links.
+// Per-loop work must instead go through housekeeping_task_user(), which
+// quantum/main.c calls every iteration of the main loop.
 void hook_keyboard_loop(void)
 {
-#ifdef DIAG_B15_BLINK
-    diag_b15_blink();
+}
+
+void housekeeping_task_user(void)
+{
+#ifdef DIAG_PIN_SWEEP
+    diag_pin_sweep();
 #endif
 }
 
