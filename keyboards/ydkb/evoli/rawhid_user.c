@@ -19,6 +19,7 @@ along with this program.  If not, see <http://www.gnu.org/licenses/>.
 #include "ch.h"
 #include "quantum.h"
 #include "via.h"
+#include "raw_hid.h"
 
 #include "ec_matrix.h"
 

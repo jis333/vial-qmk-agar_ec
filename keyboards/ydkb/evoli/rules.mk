@@ -22,6 +22,9 @@ COMMAND_ENABLE = yes        # Commands for debug and configuration
 NKRO_ENABLE = yes           # Enable N-Key Rollover
 BACKLIGHT_ENABLE = no      # Enable keyboard backlight functionality
 RGBLIGHT_ENABLE = yes       # Enable keyboard RGB underglow
+RGBLIGHT_DRIVER = custom    # led.c에서 직접 rgblight_driver_t를 정의함 (인디케이터 오버레이 등 커스텀 로직 때문)
+WS2812_DRIVER_REQUIRED = yes # custom 모드에서는 자동 설정 안되므로 명시 필요
+WS2812_DRIVER = bitbang     # STM32 GPIO 직접 비트뱅잉. 보드에 별도 I2C LED 컨트롤러 IC가 있다면 i2c로 변경
 AUDIO_ENABLE = no           # Audio output
 SLEEP_LED_ENABLE = no
 

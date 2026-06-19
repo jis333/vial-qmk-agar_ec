@@ -7,14 +7,20 @@
 #define CONTACT(x,y)    x##y
 #define CONTACT2(x,y)   CONTACT(x,y)
 #define FW_VER          CONTACT2(VIAL_, FW_VER_DATE)
+// USBSTR()/USBCONCAT() in tmk_core/protocol/usb_descriptor_common.h paste
+// `L` directly onto the first token of MANUFACTURER/PRODUCT, so they must
+// expand to (a run of adjacent) string literal tokens, not bare text.
+// The STRINGIZE indirection forces FW_VER to be expanded before quoting.
+#define EVOLI_STRINGIZE2(x) #x
+#define EVOLI_STRINGIZE(x)  EVOLI_STRINGIZE2(x)
 #define VENDOR_ID       0x9D5B
 #define PRODUCT_ID      0x24EF
 #define DEVICE_VER      0x0001
-#define MANUFACTURER    KBDFans_YDKB
+#define MANUFACTURER    "KBDFans_YDKB"
 #if CONSOLE_ENABLE
-#define PRODUCT         Evoli Keyboard Uni Debug (FW_VER)
+#define PRODUCT         "Evoli Keyboard Uni Debug (" EVOLI_STRINGIZE(FW_VER) ")"
 #else
-#define PRODUCT         Evoli Keyboard Uni (FW_VER)
+#define PRODUCT         "Evoli Keyboard Uni (" EVOLI_STRINGIZE(FW_VER) ")"
 #endif
 
 #define USB_MAX_POWER_CONSUMPTION 350
@@ -44,11 +50,11 @@
 
 #define RGBLIGHT_LIMIT_VAL 192
 #define RGBLIGHT_SLEEP
-#define RGB_DI_PIN B15
+#define WS2812_DI_PIN B15
 #define RGBLED_NUM 16
 /* key combination for command */
 #define IS_COMMAND() ( \
-    (get_mods() == (MOD_BIT(KC_LSHIFT) | MOD_BIT(KC_RSHIFT))) || \
-    (get_mods() == (MOD_BIT(KC_LSHIFT) | MOD_BIT(KC_LCTRL) | MOD_BIT(KC_RSHIFT))) \
+    (get_mods() == (MOD_BIT(KC_LSFT) | MOD_BIT(KC_RSFT))) || \
+    (get_mods() == (MOD_BIT(KC_LSFT) | MOD_BIT(KC_LCTL) | MOD_BIT(KC_RSFT))) \
 )
 

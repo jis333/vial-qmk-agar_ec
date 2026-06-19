@@ -3,9 +3,9 @@
 #define PRODUCT_ID    0x2502
 #undef  PRODUCT
 #if CONSOLE_ENABLE
-#define PRODUCT    AgarEC Debug (FW_VER)
+#define PRODUCT    "AgarEC Debug (" EVOLI_STRINGIZE(FW_VER) ")"
 #else
-#define PRODUCT    AgarEC Keyboard (FW_VER)
+#define PRODUCT    "AgarEC Keyboard (" EVOLI_STRINGIZE(FW_VER) ")"
 #endif
 
 #undef  MATRIX_ROWS
@@ -25,5 +25,10 @@
 #undef  RGBLED_NUM
 #define RGBLED_NUM    16
 #define PHY_INDICATOR_NUM    1
-#define INDICATOR_FUNCT    {(1<<USB_LED_CAPS_LOCK)}
+// RGBLIGHT_DRIVER=custom skips the automatic RGBLIGHT_WS2812 define, so
+// drivers/led/ws2812.h never gets WS2812_LED_COUNT. Must match the total
+// size of rgbled[] in led.c (PHY_INDICATOR_NUM + RGBLED_NUM).
+#define WS2812_LED_COUNT    (PHY_INDICATOR_NUM + RGBLED_NUM)
+// led_t.raw bit layout: 0=num_lock, 1=caps_lock, 2=scroll_lock, 3=compose, 4=kana
+#define INDICATOR_FUNCT    {(1<<1)}
 #define RGB_EXTRA_PROCESS_ENABLE
