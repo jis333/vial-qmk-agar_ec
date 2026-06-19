@@ -50,7 +50,16 @@
 
 #define RGBLIGHT_LIMIT_VAL 192
 #define RGBLIGHT_SLEEP
-#define WS2812_DI_PIN B15
+// B15 produced zero reaction (real WS2812 protocol and raw toggle alike).
+// The bootloader (separate firmware) visibly drives the same, only physical
+// LED on the board, and conventionally that bootloader uses the Maple
+// Mini's PB1 LED pin -- try that instead. NOTE: B1 is also used as a matrix
+// row line in ec_select_row()/matrix.c; this only works because WS2812
+// frames are sent rarely (color-change events only) and matrix scanning
+// resumes its own pin mode immediately after, so the two don't overlap in
+// time. If LED control becomes unreliable or breaks key input, this sharing
+// assumption is wrong and needs revisiting.
+#define WS2812_DI_PIN B1
 #define RGBLED_NUM 16
 /* key combination for command */
 #define IS_COMMAND() ( \

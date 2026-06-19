@@ -110,6 +110,12 @@ void set_rgb_user(uint8_t r, uint8_t g, uint8_t b)
 
 void rgblight_user_init(void)
 {
+    // matrix_init() (which calls this) runs in quantum/keyboard.c before
+    // rgblight_init() does, so the registered driver's .init (my_rgblight_init
+    // -> ws2812_init) hasn't run yet at this point. Without this, the data
+    // pin is still in its reset-state (not configured as output) when we
+    // try to flush colors below, so every write here is silently lost.
+    ws2812_init();
 #ifdef CONFIG_BOOT_TEST_RGB
     set_rgb_user(32, 0, 0);
     wait_ms(300);
@@ -243,8 +249,39 @@ void user_config_init(void)
     rprint("Layout set change\n");
 }
 
+#ifdef DIAG_B15_BLINK
+// TEMPORARY: raw on/off toggle, bypassing all WS2812 timing, to find which
+// pin RGBL1's DIN is actually wired to. B15 produced no visible reaction at
+// all, so this now tests PC13 -- the conventional "onboard LED" pin on
+// STM32F103 "Blue Pill"-style boards, which cheap clone PCBs frequently
+// reuse for an external LED too. Remove once the real pin is confirmed.
+#include "gpio.h"
+#define DIAG_PIN C13
+static void diag_b15_blink(void) {
+    static bool initialized = false;
+    static uint32_t last = 0;
+    static bool     state = false;
+    if (!initialized) {
+        initialized = true;
+        gpio_set_pin_output(DIAG_PIN);
+    }
+    if (timer_elapsed32(last) > 500) {
+        last  = timer_read32();
+        state = !state;
+        if (state) {
+            gpio_write_pin_high(DIAG_PIN);
+        } else {
+            gpio_write_pin_low(DIAG_PIN);
+        }
+    }
+}
+#endif
+
 void hook_keyboard_loop(void)
 {
+#ifdef DIAG_B15_BLINK
+    diag_b15_blink();
+#endif
 }
 
 // Snap Tap / SOCD
