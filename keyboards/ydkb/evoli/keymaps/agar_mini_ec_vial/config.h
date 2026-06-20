@@ -38,15 +38,3 @@
 // led_t.raw bit layout: 0=num_lock, 1=caps_lock, 2=scroll_lock, 3=compose, 4=kana
 #define INDICATOR_FUNCT    {(1<<1)}
 //#define RGB_EXTRA_PROCESS_ENABLE
-
-// TEMPORARY DIAGNOSTIC: boot-time red/green/blue/off flash to verify WS2812
-// output is physically reaching the LED. Remove once the always-on issue
-// is resolved.
-#define CONFIG_BOOT_TEST_RGB
-
-// DIAG_B15_BLINK disabled: raw non-protocol toggling turned out to be an
-// inconclusive test (WS2812 LEDs ignore malformed signals rather than
-// visibly reacting), so it can't distinguish "wrong pin" from "right pin,
-// ignored garbage". Keeping it off so it doesn't fight over WS2812_DI_PIN
-// now that pin is shared with matrix row 1.
-// #define DIAG_B15_BLINK
