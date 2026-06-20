@@ -39,15 +39,13 @@
 #define INDICATOR_FUNCT    {(1<<1)}
 //#define RGB_EXTRA_PROCESS_ENABLE
 
-// TEMPORARY DIAGNOSTIC: WS2812 data-pin sweep (see led.c). ROUND 2 -- now
-// sweeping the MATRIX pins (rows B0-B6, mux B10-B14), since the 17 non-matrix
-// pins and B1 were all ruled out (RGBL1 just stays power-on white). While this
-// is defined, matrix_scan() is suspended (matrix.c) so the sweep can drive
-// GPIOB cleanly -- KEYS ARE DEAD in this build, that's expected. Identified by
-// BLINK COUNT (xprintf is a no-op here): candidate i blinks white (i+1) times;
-// only the pin wired to RGBL1 blinks -> count the white blinks from power-on.
-// Remove once the DIN pin is found.
-#define DIAG_PIN_SWEEP
+// DIAG_PIN_SWEEP found the DIN: round-3 lit RED on B15 (WS2812_DI_PIN is now B15
+// in the board config.h). Sweep is now DISABLED so matrix scanning resumes and
+// the normal indicator path runs -- verify caps lock -> cyan and that typing
+// doesn't break the colour. Re-enable only if the pin needs re-checking; the
+// diag code still lives behind this macro in led.c. (Full removal pending once
+// the fix is confirmed on hardware.)
+//#define DIAG_PIN_SWEEP
 
 // CONFIG_BOOT_TEST_RGB (boot R->G->B on B1) is now OFF: B1 was ruled out (no
 // R->G->B appeared) and it would only add a confusing flash. Re-enable only to

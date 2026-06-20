@@ -50,16 +50,16 @@
 
 #define RGBLIGHT_LIMIT_VAL 192
 #define RGBLIGHT_SLEEP
-// B15 produced zero reaction (real WS2812 protocol and raw toggle alike).
-// The bootloader (separate firmware) visibly drives the same, only physical
-// LED on the board, and conventionally that bootloader uses the Maple
-// Mini's PB1 LED pin -- try that instead. NOTE: B1 is also used as a matrix
-// row line in ec_select_row()/matrix.c; this only works because WS2812
-// frames are sent rarely (color-change events only) and matrix scanning
-// resumes its own pin mode immediately after, so the two don't overlap in
-// time. If LED control becomes unreliable or breaks key input, this sharing
-// assumption is wrong and needs revisiting.
-#define WS2812_DI_PIN B1
+// RGBL1's WS2812 data-in is B15. Confirmed by the round-3 diagnostic sweep
+// (DIAG_PIN_SWEEP): from a cold-boot dark start, driving B15 solid red lit the
+// LED; the console printed "[sweep] driving B15" at that moment. B15 was wrongly
+// excluded in earlier sessions -- those tests compared a white frame against the
+// LED's *frozen bootloader colour* (handoff -> firmware leaves the last colour
+// latched), so "stayed lit" was misread as "no reaction". B15 is a free GPIO
+// (NOT a matrix pin), so unlike the old B1 guess there is no matrix-scan sharing
+// to worry about. (The same sibling board agar_ec_vial also drives its strip
+// from B15.)
+#define WS2812_DI_PIN B15
 #define RGBLED_NUM 16
 /* key combination for command */
 #define IS_COMMAND() ( \
