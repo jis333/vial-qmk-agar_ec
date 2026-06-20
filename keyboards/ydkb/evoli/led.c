@@ -127,40 +127,31 @@ void rgblight_user_init(void)
 }
 
 // ====================================================================
-// Status indicator LED: explicit color per (caps / layer / modifier) state
+// Status indicator LED: explicit color per (caps / layer) state
 // --------------------------------------------------------------------
-// The single physical LED (rgbled[0]) shows one color chosen from 7 states,
+// The single physical LED (rgbled[0]) shows one color chosen from 4 states,
 // evaluated in priority order (1 = highest):
 //
-//   1  CapsLock ON (any modifier)           -> red           (150,  0,  0)
-//   2  Layer 2 active        + modifier      -> bright azure  ( 60,140,230)
-//   3  Layer 2 active        (no modifier)   -> bright teal   ( 60,190,120)
-//   4  Layer 1/4/5/6 active  + modifier      -> bright violet (140, 70,190)
-//   5  Layer 1/4/5/6 active  (no modifier)   -> bright amber  (190,120, 20)
-//   6  Layer 0 (base)        + modifier      -> dim grey      ( 26, 26, 26)
-//   7  Layer 0 (base)        (no modifier)   -> off
+//   1  CapsLock ON     -> red               (150,  0,  0)
+//   2  Layer 2 active  -> bright teal-green ( 60,190,120)
+//   3  Layer 1/4/5/6   -> bright amber      (190,120, 20)
+//   4  Layer 0 (base)  -> off
 //
-// "Modifier" = any of ctrl/shift/alt/win (get_mods() != 0). Every state has its
-// own distinct color, so states are told apart by color (not just brightness).
-// Layer 3 (and any layer not listed) falls into the Layer 0 group (6/7).
+// Layer 3 (and any layer not listed) falls into the Layer 0 group -> off.
 //
-// Depends only on runtime *state* (host caps LED, get_mods(), layer_state),
-// not on keycodes or key positions, so remapping the keymap in Vial does not
-// break it.
+// Depends only on runtime *state* (host caps LED, layer_state), not on
+// keycodes or key positions, so remapping the keymap in Vial does not break it.
 //
-// Polled from housekeeping_task_user() every main loop, because modifier and
-// layer changes do NOT generate a USB-LED report (the only trigger for
-// led_update_user). The WS2812 flush (bitbang, interrupts off) is gated on a
-// color change so it only transmits on actual edges, not every loop.
+// Polled from housekeeping_task_user() every main loop, because layer changes
+// do NOT generate a USB-LED report (the only trigger for led_update_user). The
+// WS2812 flush (bitbang, interrupts off) is gated on a color change so it only
+// transmits on actual edges, not every loop.
 // ====================================================================
 
-static const ws2812_led_t STATUS_OFF    = { .r = 0,   .g = 0,   .b = 0   };
-static const ws2812_led_t STATUS_CAPS   = { .r = 150, .g = 0,   .b = 0   }; // 1 red
-static const ws2812_led_t STATUS_L2_MOD = { .r = 60,  .g = 140, .b = 230 }; // 2 bright azure
-static const ws2812_led_t STATUS_L2     = { .r = 60,  .g = 190, .b = 120 }; // 3 bright teal-green
-static const ws2812_led_t STATUS_L1_MOD = { .r = 140, .g = 70,  .b = 190 }; // 4 bright violet
-static const ws2812_led_t STATUS_L1     = { .r = 190, .g = 120, .b = 20  }; // 5 bright amber
-static const ws2812_led_t STATUS_L0_MOD = { .r = 26,  .g = 26,  .b = 26  }; // 6 dim grey  (7 = off)
+static const ws2812_led_t STATUS_OFF  = { .r = 0,   .g = 0,   .b = 0   };
+static const ws2812_led_t STATUS_CAPS = { .r = 150, .g = 0,   .b = 0   }; // 1 red
+static const ws2812_led_t STATUS_L2   = { .r = 60,  .g = 190, .b = 120 }; // 2 bright teal-green
+static const ws2812_led_t STATUS_L1   = { .r = 190, .g = 120, .b = 20  }; // 3 bright amber  (Layer 0 = off)
 
 static inline bool status_color_eq(ws2812_led_t a, ws2812_led_t b) {
     return a.r == b.r && a.g == b.g && a.b == b.b;
@@ -171,12 +162,10 @@ static inline bool status_color_eq(ws2812_led_t a, ws2812_led_t b) {
 // wins over the layer-1 group even if several layers are active at once.
 static ws2812_led_t status_color(void) {
     if (host_keyboard_led_state().caps_lock) return STATUS_CAPS;       // 1
-    bool mod = get_mods() != 0;
-    if (layer_state_is(2)) return mod ? STATUS_L2_MOD : STATUS_L2;     // 2 / 3
+    if (layer_state_is(2)) return STATUS_L2;                           // 2
     if (layer_state_is(1) || layer_state_is(4) ||
-        layer_state_is(5) || layer_state_is(6))
-        return mod ? STATUS_L1_MOD : STATUS_L1;                        // 4 / 5
-    return mod ? STATUS_L0_MOD : STATUS_OFF;                           // 6 / 7
+        layer_state_is(5) || layer_state_is(6)) return STATUS_L1;      // 3
+    return STATUS_OFF;                                                 // 4
 }
 
 static void status_led_paint(ws2812_led_t c) {
