@@ -38,20 +38,3 @@
 // led_t.raw bit layout: 0=num_lock, 1=caps_lock, 2=scroll_lock, 3=compose, 4=kana
 #define INDICATOR_FUNCT    {(1<<1)}
 //#define RGB_EXTRA_PROCESS_ENABLE
-
-// DIAG_PIN_SWEEP found the DIN: round-3 lit RED on B15 (WS2812_DI_PIN is now B15
-// in the board config.h). Sweep is now DISABLED so matrix scanning resumes and
-// the normal indicator path runs -- verify caps lock -> cyan and that typing
-// doesn't break the colour. Re-enable only if the pin needs re-checking; the
-// diag code still lives behind this macro in led.c. (Full removal pending once
-// the fix is confirmed on hardware.)
-//#define DIAG_PIN_SWEEP
-
-// CONFIG_BOOT_TEST_RGB (boot R->G->B on B1) is now OFF: B1 was ruled out (no
-// R->G->B appeared) and it would only add a confusing flash. Re-enable only to
-// re-test a specific WS2812_DI_PIN value.
-//#define CONFIG_BOOT_TEST_RGB
-
-// Superseded / disabled:
-//   DIAG_B15_BLINK              - raw GPIO toggle, invalid test for a WS2812
-//   DIAG_FORCE_INDICATOR_ON_CAPS- any-keypress toggle, confirmed no effect

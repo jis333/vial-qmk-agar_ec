@@ -24,19 +24,13 @@
 5. **진단 자작 비트뱅 타이밍은 스톡과 동일**(`NOP_FUDGE 0.4`/`NUMBER_NOPS 6`/동일 공식; 출력만 `palSetPort`). 타이밍은 범인 아님.
 6. **★★ DIN = B15 확정.** ROUND 3(콜드 부팅+빨강 sweep)에서 `[sweep] driving B15` 순간 RGBL1이 빨강 점등. B15는 세션1~2에서 "무반응"이라 **가장 먼저 배제**했던 핀인데, 그 배제가 바로 white-on-frozen 혼동이었음. B15는 **매트릭스 핀 아님(자유 GPIO)** → 공유 문제 없음. 풀사이즈 형제 `agar_ec_vial`도 B15 사용. → `config.h` `WS2812_DI_PIN B1→B15`, 키맵 `DIAG_PIN_SWEEP` off(코드는 #ifdef 뒤에 보존). **하드웨어 검증 대기**(캡스락→청록, 타이핑 시 색 유지).
 
-## 다음 세션 할 일 (우선순위)
-1. **ROUND 3 결과 판독.** 현재 빌드(콘솔 ON, 빨강 sweep) 플래시 → `qmk console` 띄우고 **콜드 부팅** → RGBL1이 **빨강으로 켜지는 순간 콘솔에 찍힌 핀 이름 = DIN.** sweep 순서: 비매트릭스 우선(A0,A3~A10,A15,B7~B9,B15,C13~C15) → 매트릭스(B0,B2~B6,B10~B14) → B1.
-   - **모든 핀에서 무반응이면** = 우리가 구동하는 GPIO 중에 DIN이 없다는 뜻(또는 구동 루틴 문제) → **스톡 드라이버 컴파일타임 방식으로 전환**: `WS2812_DI_PIN`을 후보별로 바꿔 빌드, 부팅 시 `set_rgb_user(80,0,0)`로 스톡 `ws2812_flush` 한 방 → 콜드 부팅에서 빨강 켜지는 빌드의 핀이 DIN. (제외했던 A1/A2도 이 단계에서 후보로.)
-2. **핀 확정 → `keyboards/ydkb/evoli/config.h`의 `WS2812_DI_PIN` 변경.**
-3. **매트릭스 공존 검증**: 그 핀이 매트릭스와 공유면, `my_rgblight_flush()`/`set_rgb_user()`의 flush 직전 `gpio_set_pin_output(WS2812_DI_PIN)` 핵으로 1회 latch 유지 의도. `DIAG_PIN_SWEEP` 끄고 캡스락→청록, 타이핑 시 색 안 깨지는지 확인. (비매트릭스 핀이면 공유 문제 없음.)
-4. **해결 후 진단 제거**: 키맵 config.h의 `DIAG_PIN_SWEEP`/`CONFIG_BOOT_TEST_RGB`, `CONSOLE_ENABLE`→`no` 환원, matrix.c의 `#ifdef DIAG_PIN_SWEEP return 0`, led.c의 `DIAG_PIN_SWEEP` 블록·`housekeeping_task_user`·`hook_keyboard_loop`.
-5. 캡스락 색: 현재 고정 청록(`led.c user_config_init`) vs VIA "CapsLock Color" 옵션 복원 — 사용자와 재논의.
+## 상태: 해결됨 (DIN=B15, 진단 제거 완료) — 브랜치 `bugfix/led`
+- **하드웨어 검증 OK**: 캡스락→청록 점등, 타이핑해도 색 안 깨짐(사용자 확인).
+- **진단 코드 전부 제거**: 키맵 `config.h`의 `DIAG_PIN_SWEEP`/`CONFIG_BOOT_TEST_RGB`/구 매크로 주석, `rules.mk` `CONSOLE_ENABLE`→`no` 환원, `matrix.c`의 `#ifdef DIAG_PIN_SWEEP return 0`, `led.c`의 `diag_*` 블록·`housekeeping_task_user`·`CONFIG_BOOT_TEST_RGB`·`DIAG_FORCE_INDICATOR_ON_CAPS` 제거. (`hook_keyboard_loop()` 빈 함수는 `matrix.c`의 weak `matrix_scan_kb()` 링크용으로 보존.)
+- `config.h` `WS2812_DI_PIN = B15`. flush 직전 `gpio_set_pin_output` 핵은 보존(B15는 비공유라 방어적 무해).
 
-## 현재 코드 상태 (세션 4 변경분, `WS2812_DI_PIN`은 아직 B1)
-- 키맵 `rules.mk`: **`CONSOLE_ENABLE = yes`** (핀 식별용; 해결 후 `no` 환원).
-- `matrix.c`: `matrix_scan()` 최상단 `#ifdef DIAG_PIN_SWEEP return 0;` (진단 중 스캔 중단) — 변경 없음.
-- `led.c`: `housekeeping_task_user()`에서 `diag_pin_sweep()` 호출 / `hook_keyboard_loop()` 빈 함수. `diag_sweep_send()`=핀 인자화 WS2812 비트뱅(타이밍은 스톡과 동일). `diag_pin_sweep()`=**콜드 부팅 깜깜에서 시작, 핀별 솔리드 빨강 2.5s + 50ms 갱신, 핀 전환 시 `xprintf("[sweep] driving Bxx")`, 사이클 시작에 `=== cycle start ===`.** `sweep_pins[]`=**전체 안전 GPIO 29개**(비매트릭스 우선, USB/SWD/ADC 제외). (잔재 유지: flush 직전 `gpio_set_pin_output` 핵, `user_config_init` 고정 청록.)
-- 키맵 `config.h`: `DIAG_PIN_SWEEP` on, `CONFIG_BOOT_TEST_RGB` off.
+## 남은 논의거리 (별건)
+- 캡스락 색: 현재 고정 청록(`led.c user_config_init`) vs VIA "CapsLock Color" 옵션 복원 — 사용자와 재논의.
 
 ## 참고
 - **빌드(QMK MSYS)**: `MSYSTEM=MINGW64 CHERE_INVOKING=1 C:\QMK_MSYS\usr\bin\bash.exe -lc "cd '/c/Users/wltjd/OneDrive/keyboard/firmware repository/vial-qmk' && qmk compile -kb ydkb/evoli -km agar_mini_ec_vial"` 또는 `go.sh`. 사용자가 직접 컴파일/플래시.
