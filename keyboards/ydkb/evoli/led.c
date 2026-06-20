@@ -32,7 +32,6 @@ along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
 extern rgblight_config_t rgblight_config;
 
-static ws2812_led_t RGBLIGHT_COLOR_OFF = { .r = 0, .g = 0, .b = 0 };
 uint8_t indicator_state = 0;
 
 uint8_t indicator_color_config[3];
@@ -69,14 +68,15 @@ static void my_rgblight_set_color_all(uint8_t r, uint8_t g, uint8_t b) {
 }
 
 static void my_rgblight_flush(void) {
-    // keep indicator color (기존 rgblight_call_driver 로직)
-    for (uint8_t i = 0; i < PHY_INDICATOR_NUM; i++) {
-        if (indicator_state & (1 << i)) {
-            rgbled[i] = indicator_color[i];
-        } else {
-            rgbled[i] = RGBLIGHT_COLOR_OFF;
-        }
-    }
+    // The physical indicator pixel (rgbled[0]) is owned by the status-LED code
+    // (status_led_paint(), driven by housekeeping_task_user()). We must NOT
+    // overwrite it here. The old indicator_state path is retired, so the loop
+    // that used to live here forced rgbled[0] = OFF on every rgblight flush
+    // (indicator_state is now always 0). Because rgblight core calls this flush
+    // independently of housekeeping (e.g. animation ticks), that turned the
+    // status color off a frame after housekeeping set it -- the LED lit briefly
+    // then went dark. We now leave rgbled[0] exactly as the status code set it,
+    // so this flush re-transmits the current status color rather than fighting it.
 
 #ifdef RGB_EXTRA_PROCESS_ENABLE
     rgb_extra_process(rgbled);
@@ -85,6 +85,11 @@ static void my_rgblight_flush(void) {
     for (uint16_t i = 0; i < PHY_INDICATOR_NUM + RGBLED_NUM; i++) {
         ws2812_set_color(i, rgbled[i].r, rgbled[i].g, rgbled[i].b);
     }
+
+    // Re-assert the data pin as output right before transmitting. Defensive:
+    // ws2812_init() already configures it at boot and WS2812_DI_PIN (B15) is a
+    // free GPIO that matrix scanning never touches, so this is belt-and-suspenders.
+    gpio_set_pin_output(WS2812_DI_PIN);
     ws2812_flush();
 }
 
@@ -105,6 +110,8 @@ void set_rgb_user(uint8_t r, uint8_t g, uint8_t b)
     for (uint16_t i = 0; i < PHY_INDICATOR_NUM + RGBLED_NUM; i++) {
         ws2812_set_color(i, rgbled[i].r, rgbled[i].g, rgbled[i].b);
     }
+    // see my_rgblight_flush(): re-assert output mode before transmitting.
+    gpio_set_pin_output(WS2812_DI_PIN);
     ws2812_flush();
 }
 
@@ -116,32 +123,77 @@ void rgblight_user_init(void)
     // pin is still in its reset-state (not configured as output) when we
     // try to flush colors below, so every write here is silently lost.
     ws2812_init();
-#ifdef CONFIG_BOOT_TEST_RGB
-    set_rgb_user(32, 0, 0);
-    wait_ms(300);
-    set_rgb_user(0, 32, 0);
-    wait_ms(300);
-    set_rgb_user(0, 0, 32);
-    wait_ms(300);
-#endif
     set_rgb_user(0, 0, 0);
+}
+
+// ====================================================================
+// Status indicator LED: explicit color per (caps / layer) state
+// --------------------------------------------------------------------
+// The single physical LED (rgbled[0]) shows one color chosen from 4 states,
+// evaluated in priority order (1 = highest):
+//
+//   1  CapsLock ON     -> red               (150,  0,  0)
+//   2  Layer 2 active  -> bright teal-green ( 60,190,120)
+//   3  Layer 1/4/5/6   -> bright amber      (190,120, 20)
+//   4  Layer 0 (base)  -> off
+//
+// Layer 3 (and any layer not listed) falls into the Layer 0 group -> off.
+//
+// Depends only on runtime *state* (host caps LED, layer_state), not on
+// keycodes or key positions, so remapping the keymap in Vial does not break it.
+//
+// Polled from housekeeping_task_user() every main loop, because layer changes
+// do NOT generate a USB-LED report (the only trigger for led_update_user). The
+// WS2812 flush (bitbang, interrupts off) is gated on a color change so it only
+// transmits on actual edges, not every loop.
+// ====================================================================
+
+static const ws2812_led_t STATUS_OFF  = { .r = 0,   .g = 0,   .b = 0   };
+static const ws2812_led_t STATUS_CAPS = { .r = 150, .g = 0,   .b = 0   }; // 1 red
+static const ws2812_led_t STATUS_L2   = { .r = 60,  .g = 190, .b = 120 }; // 2 bright teal-green
+static const ws2812_led_t STATUS_L1   = { .r = 190, .g = 120, .b = 20  }; // 3 bright amber  (Layer 0 = off)
+
+static inline bool status_color_eq(ws2812_led_t a, ws2812_led_t b) {
+    return a.r == b.r && a.g == b.g && a.b == b.b;
+}
+
+// Priority-ordered (1 highest): caps, then layer 2, then the layer-1 group,
+// then base. layer_state_is() is used (not get_highest_layer) so layer 2 still
+// wins over the layer-1 group even if several layers are active at once.
+static ws2812_led_t status_color(void) {
+    if (host_keyboard_led_state().caps_lock) return STATUS_CAPS;       // 1
+    if (layer_state_is(2)) return STATUS_L2;                           // 2
+    if (layer_state_is(1) || layer_state_is(4) ||
+        layer_state_is(5) || layer_state_is(6)) return STATUS_L1;      // 3
+    return STATUS_OFF;                                                 // 4
+}
+
+static void status_led_paint(ws2812_led_t c) {
+    rgbled[0] = c;
+    ws2812_set_color(0, c.r, c.g, c.b);
+    // see my_rgblight_flush(): re-assert the data pin as output before TX.
+    gpio_set_pin_output(WS2812_DI_PIN);
+    ws2812_flush();
+}
+
+void housekeeping_task_user(void) {
+    static ws2812_led_t last = { .r = 1, .g = 1, .b = 1 }; // impossible -> force first paint
+    ws2812_led_t shown = status_color();
+    if (!status_color_eq(shown, last)) {
+        status_led_paint(shown);
+        last = shown;
+    }
 }
 
 bool led_update_user(led_t led_state)
 {
-    uint8_t usb_led = led_state.raw;
-    indicator_state = 0;
-#ifdef INDICATOR_FUNCT
-    static uint8_t indicator_funct[LOGIC_INDICATOR_NUM] = INDICATOR_FUNCT;
-    for (uint8_t i=0; i<LOGIC_INDICATOR_NUM; i++) {
-        if (usb_led & indicator_funct[i]) {
-            indicator_state |= (1<<i);
-        }
-    }
-
-    if (rgblight_config.mode == 1) rgblight_mode_noeeprom(rgblight_config.mode);
-    rgblight_set(); //set rgb even when rgblight.enable=0
-#endif
+    // CapsLock (and any other USB-LED) is no longer painted here. The status
+    // LED is driven entirely by housekeeping_task_user(), which reads
+    // host_keyboard_led_state()/get_mods()/get_highest_layer() through one
+    // priority-ordered path. Calling rgblight_set() here would make
+    // my_rgblight_flush() paint the old indicator color for one frame and
+    // fight the housekeeping paint, so we don't.
+    (void)led_state;
     return true;
 }
 
@@ -245,43 +297,21 @@ void user_config_init(void)
         }
         xprintf("\n indicator %d R: %d, G: %d, B:%d", i, indicator_color[i].r, indicator_color[i].g, indicator_color[i].b);
     }
+    // (CapsLock color is now handled by status_base_color()/housekeeping_task_user();
+    //  the old fixed-cyan indicator_color[0] override is no longer used.)
     led_wakeup();
     rprint("Layout set change\n");
 }
 
-#ifdef DIAG_B15_BLINK
-// TEMPORARY: raw on/off toggle, bypassing all WS2812 timing, to find which
-// pin RGBL1's DIN is actually wired to. B15 produced no visible reaction at
-// all, so this now tests PC13 -- the conventional "onboard LED" pin on
-// STM32F103 "Blue Pill"-style boards, which cheap clone PCBs frequently
-// reuse for an external LED too. Remove once the real pin is confirmed.
-#include "gpio.h"
-#define DIAG_PIN C13
-static void diag_b15_blink(void) {
-    static bool initialized = false;
-    static uint32_t last = 0;
-    static bool     state = false;
-    if (!initialized) {
-        initialized = true;
-        gpio_set_pin_output(DIAG_PIN);
-    }
-    if (timer_elapsed32(last) > 500) {
-        last  = timer_read32();
-        state = !state;
-        if (state) {
-            gpio_write_pin_high(DIAG_PIN);
-        } else {
-            gpio_write_pin_low(DIAG_PIN);
-        }
-    }
-}
-#endif
-
+// hook_keyboard_loop() is effectively DEAD on this board: it is only ever
+// called from matrix_scan_kb(), which is only called from
+// quantum/matrix_common.c -- and that file is NOT compiled when
+// CUSTOM_MATRIX = yes (builddefs/common_features.mk:654). It is kept here
+// only so the (unused, weak) matrix_scan_kb() in matrix.c still links.
+// Per-loop work must instead go through housekeeping_task_user(), which
+// quantum/main.c calls every iteration of the main loop.
 void hook_keyboard_loop(void)
 {
-#ifdef DIAG_B15_BLINK
-    diag_b15_blink();
-#endif
 }
 
 // Snap Tap / SOCD
