@@ -32,6 +32,10 @@ along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
 extern rgblight_config_t rgblight_config;
 
+enum custom_keycodes {
+    HANENG_CORRECT = QK_USER_0 + 4,
+};
+
 uint8_t indicator_state = 0;
 
 uint8_t indicator_color_config[3];

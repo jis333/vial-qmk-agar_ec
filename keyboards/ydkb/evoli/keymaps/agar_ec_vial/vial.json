@@ -8,7 +8,8 @@
         {"name": "ST(W)", "title": "", "shortName": "ST(W)"},
         {"name": "ST(A)", "title": "", "shortName": "ST(A)"},
         {"name": "ST(S)", "title": "", "shortName": "ST(S)"},
-        {"name": "ST(D)", "title": "", "shortName": "ST(D)"}
+        {"name": "ST(D)", "title": "", "shortName": "ST(D)"},
+        {"name": "HanEngCorrect", "title": "", "shortName": "한영교정"}
     ], 
     "layouts": {
         "labels":[
