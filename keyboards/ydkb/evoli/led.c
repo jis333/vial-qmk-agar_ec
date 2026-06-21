@@ -277,6 +277,9 @@ bool led_update_user(led_t led_state)
 bool process_record_user(uint16_t keycode, keyrecord_t *record) {
     static uint8_t mod_keys_registered;
     uint8_t pressed_mods = get_mods();
+
+    haneng_track_keystroke(keycode, record);
+
     switch (keycode) {
         case 0x5c00: // via/vial reset to bootloader
             if (record->event.pressed) {
@@ -301,6 +304,26 @@ bool process_record_user(uint16_t keycode, keyrecord_t *record) {
             } else {
                 unregister_code(mod_keys_registered);
                 send_keyboard_report();
+            }
+            return false;
+        case HANENG_CORRECT:
+            if (record->event.pressed) {
+                if (!haneng_buf_invalid && haneng_buf_len > 0) {
+                    register_code(KC_LCTL);
+                    register_code(KC_LSFT);
+                    tap_code(KC_LEFT);
+                    unregister_code(KC_LSFT);
+                    unregister_code(KC_LCTL);
+                    tap_code(KC_BSPC);
+                    tap_code(KC_LNG1);
+                    for (uint8_t i = 0; i < haneng_buf_len; i++) {
+                        uint8_t mods = haneng_buf[i].mods;
+                        if (mods) register_mods(mods);
+                        tap_code(haneng_buf[i].keycode);
+                        if (mods) unregister_mods(mods);
+                        wait_ms(10);
+                    }
+                }
             }
             return false;
         default:
