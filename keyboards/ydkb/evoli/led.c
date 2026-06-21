@@ -33,12 +33,17 @@ along with this program.  If not, see <http://www.gnu.org/licenses/>.
 extern rgblight_config_t rgblight_config;
 
 enum custom_keycodes {
-    HANENG_CORRECT = QK_USER_0 + 4,
+    // Vial's "customKeycodes" picker maps array entries positionally to
+    // QK_KB_0 onward (not QK_USER_0) - confirmed by checking what keycode
+    // Vial actually assigned when picking this entry from the User tab.
+    // ST(W)/ST(A)/ST(S)/ST(D) occupy indices 0-3 (QK_KB_0..QK_KB_0+3), so
+    // this is the next free slot.
+    HANENG_CORRECT = QK_KB_0 + 4,
 };
 
 typedef struct {
-    uint16_t keycode;
-    uint8_t  mods;
+    uint8_t keycode;
+    uint8_t mods;
 } haneng_buffered_key_t;
 
 #define HANENG_BUF_MAX 16
@@ -54,29 +59,61 @@ static void haneng_buffer_reset(void) {
     haneng_buf_invalid = false;
 }
 
-static void haneng_track_keystroke(uint16_t keycode, keyrecord_t *record) {
-    if (!record->event.pressed) return;
-    if (keycode == HANENG_CORRECT) return; // never buffer the correction key itself
+// Set while HANENG_CORRECT's own correction sequence (select, delete, IME
+// toggle, replay) is sending synthetic input - register_code/register_mods
+// fire for all of that too, and without this guard we'd capture our own
+// replay as if the user had typed it, corrupting or looping the buffer.
+static bool haneng_replaying = false;
 
-    // Stale buffer from an idle gap - start fresh before processing this key.
+static void haneng_buffer_append(uint8_t code, uint8_t mods) {
+    if (haneng_buf_invalid) return;
+    if (haneng_buf_len >= HANENG_BUF_MAX) {
+        haneng_buf_invalid = true;
+        return;
+    }
+    haneng_buf[haneng_buf_len].keycode = code;
+    haneng_buf[haneng_buf_len].mods    = mods;
+    haneng_buf_len++;
+}
+
+// Called from __wrap_add_key_to_report with the keycode QMK is actually
+// about to send to the host - this is already fully resolved (tap-hold and
+// tap-dance keys have already decided their real output by the time it
+// reaches here), so no raw-keycode guessing is needed.
+//
+// add_key_to_report (tmk_core/protocol/report.c) rather than register_code
+// is the hook point: register_code's main caller, process_action, is
+// defined in the same translation unit (quantum/action.c) as register_code
+// itself, so GCC resolves that call locally and `--wrap=register_code`
+// can't intercept it - confirmed by inspecting the linked ELF, where
+// process_action's call to register_code branched straight to the original
+// address instead of __wrap_register_code. add_key_to_report is a genuinely
+// separate translation unit from every caller (action.c, quantum.c, vial.c),
+// so wrapping it is reliable regardless of which path produced the key.
+static void haneng_on_add_key(uint8_t code) {
+    if (haneng_replaying) return;
+
     if (haneng_buf_len > 0 && timer_elapsed(haneng_last_keytime) > HANENG_TIMEOUT_MS) {
         haneng_buffer_reset();
     }
+    haneng_last_keytime = timer_read();
 
-    // Word boundaries: reset and don't buffer the boundary key itself.
-    if (keycode == KC_SPC || keycode == KC_ENT || keycode == KC_TAB || keycode == KC_BSPC) {
+    if (code == KC_SPC || code == KC_ENT || code == KC_TAB || code == KC_BSPC ||
+        code == KC_LNG1 || code == KC_LNG2) {
+        // The IME toggle key itself (or Hanja) must never end up in the
+        // buffer: replaying it later would re-toggle the mode a second
+        // time mid-replay, cancelling out our own deliberate toggle. A
+        // manual mid-word toggle also means whatever was typed before it
+        // belongs to a different mode context than what comes after, so
+        // treat it as a hard word boundary like Enter/Space/Tab/Backspace.
         haneng_buffer_reset();
-        haneng_last_keytime = timer_read();
         return;
     }
-
-    // Bare Ctrl/Alt/Gui keydown: treat as a boundary too, don't buffer the modifier itself.
-    switch (keycode) {
+    switch (code) {
         case KC_LCTL: case KC_RCTL:
         case KC_LALT: case KC_RALT:
         case KC_LGUI: case KC_RGUI:
             haneng_buffer_reset();
-            haneng_last_keytime = timer_read();
             return;
         case KC_LSFT: case KC_RSFT:
             // Shift alone produces no character - ignore, don't touch the buffer.
@@ -85,28 +122,47 @@ static void haneng_track_keystroke(uint16_t keycode, keyrecord_t *record) {
             break;
     }
 
-    uint8_t pressed_mods = get_mods();
+    haneng_buffer_append(code, get_mods());
+}
+
+// Called from __wrap_add_mods - catches real Ctrl/Alt/Gui engaged as a hold
+// (e.g. a home-row mod resolving to a hold instead of its tap target), which
+// never goes through add_key_to_report at all. Shift is exempt, matching
+// haneng_on_add_key above. add_mods (quantum/action_util.c) is, for the same
+// same-translation-unit reason as above, the reliable wrap target rather
+// than register_mods (quantum/action.c).
+static void haneng_on_add_mods(uint8_t mods) {
+    if (haneng_replaying) return;
     const uint8_t blocking_mods = MOD_BIT(KC_LCTL) | MOD_BIT(KC_RCTL) |
                                    MOD_BIT(KC_LALT) | MOD_BIT(KC_RALT) |
                                    MOD_BIT(KC_LGUI) | MOD_BIT(KC_RGUI);
-    if (pressed_mods & blocking_mods) {
+    if (mods & blocking_mods) {
         haneng_buffer_reset();
         haneng_last_keytime = timer_read();
-        return;
     }
+}
 
-    haneng_last_keytime = timer_read();
+extern void __real_add_key_to_report(uint8_t key);
+extern void __real_del_key_from_report(uint8_t key);
+extern void __real_add_mods(uint8_t mods);
+extern void __real_del_mods(uint8_t mods);
 
-    if (haneng_buf_invalid) return;
+void __wrap_add_key_to_report(uint8_t key) {
+    haneng_on_add_key(key);
+    __real_add_key_to_report(key);
+}
 
-    if (haneng_buf_len >= HANENG_BUF_MAX) {
-        haneng_buf_invalid = true;
-        return;
-    }
+void __wrap_del_key_from_report(uint8_t key) {
+    __real_del_key_from_report(key);
+}
 
-    haneng_buf[haneng_buf_len].keycode = keycode;
-    haneng_buf[haneng_buf_len].mods    = pressed_mods;
-    haneng_buf_len++;
+void __wrap_add_mods(uint8_t mods) {
+    haneng_on_add_mods(mods);
+    __real_add_mods(mods);
+}
+
+void __wrap_del_mods(uint8_t mods) {
+    __real_del_mods(mods);
 }
 
 uint8_t indicator_state = 0;
@@ -278,8 +334,6 @@ bool process_record_user(uint16_t keycode, keyrecord_t *record) {
     static uint8_t mod_keys_registered;
     uint8_t pressed_mods = get_mods();
 
-    haneng_track_keystroke(keycode, record);
-
     switch (keycode) {
         case 0x5c00: // via/vial reset to bootloader
             if (record->event.pressed) {
@@ -308,21 +362,44 @@ bool process_record_user(uint16_t keycode, keyrecord_t *record) {
             return false;
         case HANENG_CORRECT:
             if (record->event.pressed) {
+                // The HANENG_CORRECT key's own keydown HID report needs a moment
+                // to settle before we start sending synthetic reports, or the
+                // first register_code below gets lost on the host side.
+                wait_ms(50);
+                // The capture hooks only check staleness when a new key
+                // arrives - if the user just sits idle after the word and
+                // then presses this key directly, no such event happened to
+                // invalidate it. Check here too, or a stale buffer survives
+                // indefinitely and keeps getting replayed.
+                if (haneng_buf_len > 0 && timer_elapsed(haneng_last_keytime) > HANENG_TIMEOUT_MS) {
+                    haneng_buffer_reset();
+                }
                 if (!haneng_buf_invalid && haneng_buf_len > 0) {
+                    haneng_replaying = true;
                     register_code(KC_LCTL);
                     register_code(KC_LSFT);
                     tap_code(KC_LEFT);
                     unregister_code(KC_LSFT);
                     unregister_code(KC_LCTL);
                     tap_code(KC_BSPC);
+                    wait_ms(30);
                     tap_code(KC_LNG1);
+                    // The IME needs time to actually switch mode before the
+                    // first replayed character arrives, or it (and sometimes
+                    // several characters after it) get composed under the
+                    // stale mode.
+                    wait_ms(50);
                     for (uint8_t i = 0; i < haneng_buf_len; i++) {
                         uint8_t mods = haneng_buf[i].mods;
                         if (mods) register_mods(mods);
                         tap_code(haneng_buf[i].keycode);
                         if (mods) unregister_mods(mods);
-                        wait_ms(10);
+                        // Hangul composition needs more processing time per
+                        // keystroke than a plain ASCII send - 10ms was too
+                        // tight and dropped characters under fast replay.
+                        wait_ms(30);
                     }
+                    haneng_replaying = false;
                 }
             }
             return false;

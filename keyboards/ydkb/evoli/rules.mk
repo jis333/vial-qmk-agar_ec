@@ -34,3 +34,17 @@ SLEEP_LED_ENABLE = no
 # Enter lower-power sleep mode when on the ChibiOS idle thread
 OPT_DEFS += -DCORTEX_ENABLE_WFI_IDLE=TRUE
 OPT_DEFS += -DCORTEX_VTOR_INIT=0x4000
+
+# HanEngCorrect (led.c) needs to observe the keycodes QMK actually sends to
+# the host, not the pre-resolution raw keycodes process_record_user sees -
+# tap dance and tap-hold keys resolve to their real output deeper in the
+# pipeline. Wrap the lowest-level primitives everything funnels through
+# (NOT register_code/register_mods: those are defined in the same
+# translation unit, quantum/action.c, as their main caller process_action,
+# so GCC resolves that call locally and --wrap can't intercept it - confirmed
+# by inspecting the linked ELF. add_key_to_report/del_key_from_report
+# (tmk_core/protocol/report.c) and add_mods/del_mods (quantum/action_util.c)
+# are genuinely separate translation units from every caller, so the
+# linker-level wrap is reliable there).
+EXTRALDFLAGS += -Wl,--wrap=add_key_to_report -Wl,--wrap=del_key_from_report
+EXTRALDFLAGS += -Wl,--wrap=add_mods -Wl,--wrap=del_mods
