@@ -34,3 +34,6 @@ SLEEP_LED_ENABLE = no
 # Enter lower-power sleep mode when on the ChibiOS idle thread
 OPT_DEFS += -DCORTEX_ENABLE_WFI_IDLE=TRUE
 OPT_DEFS += -DCORTEX_VTOR_INIT=0x4000
+
+# Suppress unused-function warning for task 2 (haneng_track_keystroke wired in task 3)
+CFLAGS += -Wno-unused-function

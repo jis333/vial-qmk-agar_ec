@@ -36,6 +36,79 @@ enum custom_keycodes {
     HANENG_CORRECT = QK_USER_0 + 4,
 };
 
+typedef struct {
+    uint16_t keycode;
+    uint8_t  mods;
+} haneng_buffered_key_t;
+
+#define HANENG_BUF_MAX 16
+#define HANENG_TIMEOUT_MS 5000
+
+static haneng_buffered_key_t haneng_buf[HANENG_BUF_MAX];
+static uint8_t  haneng_buf_len = 0;
+static bool     haneng_buf_invalid = false;
+static uint16_t haneng_last_keytime = 0;
+
+static void haneng_buffer_reset(void) {
+    haneng_buf_len     = 0;
+    haneng_buf_invalid = false;
+}
+
+static void haneng_track_keystroke(uint16_t keycode, keyrecord_t *record) {
+    if (!record->event.pressed) return;
+    if (keycode == HANENG_CORRECT) return; // never buffer the correction key itself
+
+    // Stale buffer from an idle gap - start fresh before processing this key.
+    if (haneng_buf_len > 0 && timer_elapsed(haneng_last_keytime) > HANENG_TIMEOUT_MS) {
+        haneng_buffer_reset();
+    }
+
+    // Word boundaries: reset and don't buffer the boundary key itself.
+    if (keycode == KC_SPC || keycode == KC_ENT || keycode == KC_TAB || keycode == KC_BSPC) {
+        haneng_buffer_reset();
+        haneng_last_keytime = timer_read();
+        return;
+    }
+
+    // Bare Ctrl/Alt/Gui keydown: treat as a boundary too, don't buffer the modifier itself.
+    switch (keycode) {
+        case KC_LCTL: case KC_RCTL:
+        case KC_LALT: case KC_RALT:
+        case KC_LGUI: case KC_RGUI:
+            haneng_buffer_reset();
+            haneng_last_keytime = timer_read();
+            return;
+        case KC_LSFT: case KC_RSFT:
+            // Shift alone produces no character - ignore, don't touch the buffer.
+            return;
+        default:
+            break;
+    }
+
+    uint8_t pressed_mods = get_mods();
+    const uint8_t blocking_mods = MOD_BIT(KC_LCTL) | MOD_BIT(KC_RCTL) |
+                                   MOD_BIT(KC_LALT) | MOD_BIT(KC_RALT) |
+                                   MOD_BIT(KC_LGUI) | MOD_BIT(KC_RGUI);
+    if (pressed_mods & blocking_mods) {
+        haneng_buffer_reset();
+        haneng_last_keytime = timer_read();
+        return;
+    }
+
+    haneng_last_keytime = timer_read();
+
+    if (haneng_buf_invalid) return;
+
+    if (haneng_buf_len >= HANENG_BUF_MAX) {
+        haneng_buf_invalid = true;
+        return;
+    }
+
+    haneng_buf[haneng_buf_len].keycode = keycode;
+    haneng_buf[haneng_buf_len].mods    = pressed_mods;
+    haneng_buf_len++;
+}
+
 uint8_t indicator_state = 0;
 
 uint8_t indicator_color_config[3];
